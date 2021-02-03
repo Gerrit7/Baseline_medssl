@@ -13,16 +13,35 @@ from tqdm import trange
 
 from medssl.datasets.medmnist import MedMNIST, BalancedSampler
 from medssl.models.resnet import BaselineResNet
+from medssl.data.medmnist.info import INFO
+
+flag = 'octmnist'
+baseline_type = 'regular'
+
+dataset_path = os.path.join('Baseline_' + flag, baseline_type)
+model_save_path = os.path.join(dataset_path, 'Checkpoints')
+csv_save_path = os.path.join(dataset_path, 'Evaluation')
+train_batch_size = 128
+valid_batch_size= 128
+
+info_dict = {
+        'Type': 'Baseline without Dropout',
+        'Dataset': 'OCTMMNIST',
+        'Model': 'BaselineResnet',
+        'Optimizer': 'SGD',
+        'Criterion': 'CrossEntropyLoss',
+        'Sheduler': 'ReduceLROnPlateau',
+}
 
 ######################################################################################################
 ######################################################################################################
 ##read in data (default is pathmnist)
-traindata = MedMNIST(root='../medssl/data/medmnist', split='train', transform=transforms.ToTensor(), download=True, flag='octmnist')
-validdata = MedMNIST(root='../medssl/data/medmnist', split='val', transform=transforms.ToTensor(), download=True, flag='octmnist')
+traindata = MedMNIST(root='../medssl/data/medmnist', split='train', transform=transforms.ToTensor(), download=True, flag=flag)
+validdata = MedMNIST(root='../medssl/data/medmnist', split='val', transform=transforms.ToTensor(), download=True, flag=flag)
 
-sampler = BalancedSampler(traindata, n=2000, shuffle=True) #Notiz: aktuell kein Seed gesetzt. Wird jedes Mal neue Indices auswählen
-trainloader = DataLoader(dataset=traindata, batch_size=128, sampler=sampler, drop_last=True, num_workers=4)
-validloader = DataLoader(dataset=validdata, batch_size=1, num_workers=4)
+sampler = BalancedSampler(traindata, n=7754, shuffle=True) #Notiz: aktuell kein Seed gesetzt. Wird jedes Mal neue Indices auswählen
+trainloader = DataLoader(dataset=traindata, batch_size=train_batch_size, sampler=sampler, drop_last=True, num_workers=4)
+validloader = DataLoader(dataset=validdata, batch_size=valid_batch_size, num_workers=4)
 
 
 ######################################################################################################
@@ -34,9 +53,9 @@ print(device)
 ######################################################################################################
 ######################################################################################################
 ## model setup
-
-in_channels = 3     # params for pathmnist
-n_classes = 9     # params for pathmnist
+info = INFO[flag]
+in_channels = info['n_channels']
+n_classes = len(info['label'])
 
 model = BaselineResNet(num_classes=n_classes, in_channels=in_channels, mnist=True).to(device)  #important to move model to gpu before creating optimizer
 criterion = nn.CrossEntropyLoss()
@@ -78,33 +97,38 @@ def validate():
             outputs = model(inputs)
             batch_loss = criterion(outputs, targets)
             valid_loss += batch_loss.item()
-
         return valid_loss/batch_idx
 
 
-def csv_results(fieldnames_dict, csv_path="mc_evaluation"):
+def csv_results(fieldnames_dict, csv_path):
     # save results in csv file
     if not os.path.exists(csv_path):
         os.makedirs(csv_path)
 
-    file_exists = os.path.isfile(os.path.join(csv_path, 'baseline_results.csv'))
-    with open(os.path.join(csv_path, 'baseline_results.csv'), 'a+', newline='') as csvfile:
-        fieldnames = fieldnames_dict.keys()
+    file_exists = os.path.isfile(os.path.join(csv_save_path, 'results.csv'))
+    with open(os.path.join(csv_save_path, 'results.csv'), 'a+', newline='') as csvfile:
+        fieldnames = [*fieldnames_dict]
 
+        infowriter = csv.DictWriter(csvfile, fieldnames=[*info_dict])
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
         if not file_exists:
+            infowriter.writeheader()
+            infowriter.writerow(info_dict)
             writer.writeheader()  # file doesn't exist yet, write a header
 
-        writer.writerow(fieldnames)
+        writer.writerow(fieldnames_dict)
 
 
 ######################################################################################################
 ######################################################################################################
 ## training procedure
 
-epochs = 2
+epochs = 1000
 
-modelpath_best = 'checkpoints/bestmodel.pth'
+if not os.path.exists(model_save_path):
+    os.makedirs(model_save_path)
+
 best_loss = 1000
 best_epoch = 0
 losses = np.ndarray((epochs,2))
@@ -112,14 +136,13 @@ losses = np.ndarray((epochs,2))
 for it in trange(epochs):
 
     train_loss = train()
-    print(train_loss)
 
     valid_loss = validate()
     scheduler.step(valid_loss)  # learning rate is reduced if validation loss does not improve anymore
 
     #save 'best model' if model is better than previous epochs
     if valid_loss < best_loss:
-        torch.save(model.state_dict(), modelpath_best) #no training parameters are saved
+        torch.save(model.state_dict(), os.path.join(model_save_path, "bestmodel.pth")) #no training parameters are saved
         best_loss = valid_loss
         best_epoch = it
 
@@ -128,14 +151,11 @@ for it in trange(epochs):
     losses[it,1] = valid_loss
     #plotLosses(it, losses)  # saves plot in file
 
-    dict = {
-        'Dataset': 'OCTMMNIST',
-        'Model': 'BaselineResnet',
-        'Optimizer': 'SGD',
-        'Criterion': 'CrossEntropyLoss',
-        'Sheduler': 'ReduceLROnPlateau',
+    result_dict = {
+        'Batch_Size Training': train_batch_size,
+        'Batch_Size Validation': valid_batch_size,
         'Epoche': it,
         'Train Loss': train_loss,
         'Valid Loss': valid_loss,
     }
-    csv_results(fieldnames_dict=dict, csv_path='Baseline_OCTMNIST')
+    csv_results(fieldnames_dict=result_dict, csv_path=csv_save_path)
