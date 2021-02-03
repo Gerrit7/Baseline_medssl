@@ -18,7 +18,7 @@ from medssl.models.resnet import BayesianResNet18_v2
 from medssl.data.medmnist.info import INFO
 
 flag = 'octmnist'
-baseline_type = 'regular'
+baseline_type = 'dropout_conv'
 
 dataset_path = os.path.join('Baseline_' + flag, baseline_type)
 model_path = os.path.join(dataset_path, 'Checkpoints', 'bestmodel.pth')
@@ -28,7 +28,7 @@ test_batch_size= 1
 
 info_dict = {
         'Training': 'Without dropout',
-        'Testing': 'Without dropout',
+        'Testing': 'With MC Dropout',
         'Dataset': 'OCTMMNIST',
         'Model': 'BaselineResnet',
 }
@@ -133,7 +133,7 @@ y_pred = []
 y_prob = []
 y_true = []
 
-test_loss = test(mc=False, t_in=0)
+test_loss = test(mc=True, t_in=10)
 
 print(len(y_true))
 print(len(np.asarray(y_prob)))
